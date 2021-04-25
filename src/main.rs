@@ -71,7 +71,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(add)]
+#[commands(add, remove)]
 struct Resp;
 
 #[command]
@@ -88,6 +88,32 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             format!("{:?}:{}", msg.guild_id, args.single::<String>().unwrap()).as_bytes(),
             args.rest().as_bytes(),
         ) {
+            Ok(()) => REACTION_SUCESSED,
+            Err(_) => REACTION_FAILED,
+        };
+        if let Err(why) = msg
+            .react(&ctx.http, ReactionType::Unicode(emoji.to_string()))
+            .await
+        {
+            println!("Error reacting message: {:?}", why);
+        };
+    }
+    Ok(())
+}
+
+#[command]
+async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    if args.is_empty() || args.len() < 1 {
+        if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
+            println!("Error sending message: {:?}", why);
+        }
+    } else {
+        let data = ctx.data.read().await;
+        let db = data.get::<Database>().unwrap();
+
+        let emoji = match db
+            .delete(format!("{:?}:{}", msg.guild_id, args.single::<String>().unwrap()).as_bytes())
+        {
             Ok(()) => REACTION_SUCESSED,
             Err(_) => REACTION_FAILED,
         };
