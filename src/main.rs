@@ -1,33 +1,51 @@
-// use std::env;
-
-extern crate serde;
-extern crate toml;
-use crate::kvs::Database;
-use serde::Deserialize;
 use serenity::{
     async_trait,
-    client::{Context, EventHandler},
-    model::{
-        channel::Message,
-        prelude::{ReactionType, Ready},
+    client::bridge::gateway::ShardManager,
+    framework::standard::{
+        macros::{command, group, hook},
+        Args, CommandResult, StandardFramework,
     },
-    prelude::Client,
+    http::Http,
+    model::{channel::Message, gateway::Ready, prelude::ReactionType},
 };
-use std::io::Read;
-use std::{fs, io::BufReader};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    io::BufReader,
+    io::Read,
+    sync::Arc,
+};
 
-struct Handler;
+use serde::Deserialize;
+use serenity::prelude::*;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Deserialize)]
 struct Config {
     db_path: String,
     discord_token: String,
+    prefix: String,
 }
 
-mod consts;
-use crate::consts::consts::REACTION_FAILED;
-
+use crate::kvs::Database;
 mod kvs;
+
+mod consts;
+use crate::consts::consts::{REACTION_FAILED, REACTION_SUCESSED};
+
+struct ShardManagerContainer;
+
+impl TypeMapKey for ShardManagerContainer {
+    type Value = Arc<Mutex<ShardManager>>;
+}
+
+struct CommandCounter;
+
+impl TypeMapKey for CommandCounter {
+    type Value = HashMap<String, u64>;
+}
+
+struct Handler;
 
 fn load_config(path: std::string::String) -> Result<Config, String> {
     let mut file_content = String::new();
@@ -47,39 +65,66 @@ fn load_config(path: std::string::String) -> Result<Config, String> {
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn message(&self, ctx: Context, msg: Message) {
-        let data = ctx.data.read().await;
-        let db = data.get::<Database>().unwrap();
-        match db.put(b"Hello", b"World") {
-            Ok(v) => v,
-            Err(e) => print!("{}", e),
-        };
-        if !msg.author.bot {
-            if let Ok(Some(v)) = db.get(msg.content.as_bytes()) {
-                if v.len() != 0 {
-                    if let Err(why) = msg
-                        .channel_id
-                        .say(&ctx.http, String::from_utf8(v).unwrap())
-                        .await
-                    {
-                        if let Err(why) = msg
-                            .react(
-                                &ctx.http,
-                                ReactionType::Unicode(REACTION_FAILED.to_string()),
-                            )
-                            .await
-                        {
-                            println!("Error reacting message: {:?}", why);
-                        };
-                        println!("Error sending message: {:?}", why);
-                    }
-                }
-            }
-        };
-    }
-
     async fn ready(&self, _: Context, ready: Ready) {
         println!("{} is connected!", ready.user.name);
+    }
+}
+
+#[group]
+#[commands(add)]
+struct Resp;
+
+#[command]
+async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    if args.is_empty() || args.len() < 2 {
+        if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
+            println!("Error sending message: {:?}", why);
+        }
+    } else {
+        let data = ctx.data.read().await;
+        let db = data.get::<Database>().unwrap();
+
+        let emoji = match db.put(
+            format!("{:?}:{}", msg.guild_id, args.single::<String>().unwrap()).as_bytes(),
+            args.rest().as_bytes(),
+        ) {
+            Ok(()) => REACTION_SUCESSED,
+            Err(_) => REACTION_FAILED,
+        };
+        if let Err(why) = msg
+            .react(&ctx.http, ReactionType::Unicode(emoji.to_string()))
+            .await
+        {
+            println!("Error reacting message: {:?}", why);
+        };
+    }
+    Ok(())
+}
+
+#[hook]
+async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
+    let data = _ctx.data.read().await;
+    let db = data.get::<Database>().unwrap();
+    if let Ok(Some(v)) = db.get(format!("{:?}:{}", _msg.guild_id, unknown_command_name).as_bytes())
+    {
+        if v.len() != 0 {
+            if let Err(why) = _msg
+                .channel_id
+                .say(&_ctx.http, String::from_utf8(v).unwrap())
+                .await
+            {
+                if let Err(why) = _msg
+                    .react(
+                        &_ctx.http,
+                        ReactionType::Unicode(REACTION_FAILED.to_string()),
+                    )
+                    .await
+                {
+                    println!("Error reacting message: {:?}", why);
+                };
+                println!("Error sending message: {:?}", why);
+            }
+        }
     }
 }
 
@@ -91,14 +136,44 @@ async fn main() {
     };
 
     let db: kvs::RocksDB = kvs::KVStore::init(&conf.db_path);
+    let http = Http::new_with_token(&conf.discord_token);
+
+    let (owners, bot_id) = match http.get_current_application_info().await {
+        Ok(info) => {
+            let mut owners = HashSet::new();
+            if let Some(team) = info.team {
+                owners.insert(team.owner_user_id);
+            } else {
+                owners.insert(info.owner.id);
+            }
+            match http.get_current_user().await {
+                Ok(bot_id) => (owners, bot_id.id),
+                Err(why) => panic!("Could not access the bot id: {:?}", why),
+            }
+        }
+        Err(why) => panic!("Could not access application info: {:?}", why),
+    };
+
+    let framework = StandardFramework::new()
+        .configure(|c| {
+            c.with_whitespace(true)
+                .on_mention(Some(bot_id))
+                .prefix(&conf.prefix)
+                .owners(owners)
+        })
+        .unrecognised_command(unknown_command)
+        .group(&RESP_GROUP);
 
     let mut client = Client::builder(&conf.discord_token)
         .event_handler(Handler)
+        .framework(framework)
         .await
         .expect("Err creating client");
 
-    let data = client.data.write();
-    data.await.insert::<Database>(db.db.clone());
+    {
+        let data = client.data.write();
+        data.await.insert::<Database>(db.db.clone());
+    }
 
     if let Err(why) = client.start().await {
         println!("Client error: {:?}", why);

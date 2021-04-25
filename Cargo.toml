@@ -5,8 +5,12 @@ authors = ["makotia <3mdevmail@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-serenity = { version = "0.10", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 serde = { version = "1.0.104", features = ["derive"] }
 toml = "0.5.5"
 rocksdb = "0.13.0"
+
+[dependencies.serenity]
+git = "https://github.com/serenity-rs/serenity.git"
+branch = "current"
+features = ["framework", "standard_framework"]
