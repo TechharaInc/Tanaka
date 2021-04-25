@@ -6,16 +6,15 @@ use crate::kvs::Database;
 use serde::Deserialize;
 use serenity::{
     async_trait,
+    client::{Context, EventHandler},
     model::{
-        channel::{Message, ReactionType},
-        gateway::Ready,
+        channel::Message,
+        prelude::{ReactionType, Ready},
     },
-    prelude::{Client, Context, EventHandler},
+    prelude::Client,
 };
-use std::{
-    fs,
-    io::{BufReader, Read},
-};
+use std::io::Read;
+use std::{fs, io::BufReader};
 
 struct Handler;
 
@@ -56,26 +55,26 @@ impl EventHandler for Handler {
             Err(e) => print!("{}", e),
         };
         if !msg.author.bot {
-            if let Err(why) = msg.channel_id.say(&ctx.http, msg.content.to_string()).await {
-                if let Err(why) = msg
-                    .react(
-                        &ctx.http,
-                        ReactionType::Unicode(REACTION_FAILED.to_string()),
-                    )
-                    .await
-                {
-                    println!("Error reacting message: {:?}", why);
-                };
-                println!("Error sending message: {:?}", why);
-            }
-            print!(
-                "{}",
-                match db.get(b"Hello") {
-                    Ok(Some(v)) => std::str::from_utf8(&v).unwrap(),
-                    Ok(None) => "404",
-                    Err(_) => "Error",
+            if let Ok(Some(v)) = db.get(msg.content.as_bytes()) {
+                if v.len() != 0 {
+                    if let Err(why) = msg
+                        .channel_id
+                        .say(&ctx.http, String::from_utf8(v).unwrap())
+                        .await
+                    {
+                        if let Err(why) = msg
+                            .react(
+                                &ctx.http,
+                                ReactionType::Unicode(REACTION_FAILED.to_string()),
+                            )
+                            .await
+                        {
+                            println!("Error reacting message: {:?}", why);
+                        };
+                        println!("Error sending message: {:?}", why);
+                    }
                 }
-            )
+            }
         };
     }
 
