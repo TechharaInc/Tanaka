@@ -92,7 +92,7 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         };
 
         let emoji = match db.put(
-            format!("{:?}:{}:{}", msg.guild_id, "command", key).as_bytes(),
+            format!("{:?}:{}", msg.guild_id, key).as_bytes(),
             value.as_bytes(),
         ) {
             Ok(()) => REACTION_SUCESSED,
