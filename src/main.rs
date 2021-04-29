@@ -71,17 +71,8 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(command)]
-struct Command;
-
-#[command("command")]
-#[sub_commands(add, remove)]
-async fn command(ctx: &Context, msg: &Message) -> CommandResult {
-    if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
-        println!("Error sending message: {:?}", why);
-    }
-    Ok(())
-}
+#[commands(add, remove)]
+struct Resp;
 
 #[command]
 async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
@@ -94,13 +85,7 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let db = data.get::<Database>().unwrap();
 
         let emoji = match db.put(
-            format!(
-                "{:?}:{}:{}",
-                msg.guild_id,
-                "command",
-                args.single::<String>().unwrap()
-            )
-            .as_bytes(),
+            format!("{:?}:{}", msg.guild_id, args.single::<String>().unwrap()).as_bytes(),
             args.rest().as_bytes(),
         ) {
             Ok(()) => REACTION_SUCESSED,
@@ -126,15 +111,9 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let data = ctx.data.read().await;
         let db = data.get::<Database>().unwrap();
 
-        let emoji = match db.delete(
-            format!(
-                "{:?}:{}:{}",
-                msg.guild_id,
-                "command",
-                args.single::<String>().unwrap()
-            )
-            .as_bytes(),
-        ) {
+        let emoji = match db
+            .delete(format!("{:?}:{}", msg.guild_id, args.single::<String>().unwrap()).as_bytes())
+        {
             Ok(()) => REACTION_SUCESSED,
             Err(_) => REACTION_FAILED,
         };
@@ -152,8 +131,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
     let data = _ctx.data.read().await;
     let db = data.get::<Database>().unwrap();
-    if let Ok(Some(v)) =
-        db.get(format!("{:?}:{}:{}", _msg.guild_id, "command", unknown_command_name).as_bytes())
+    if let Ok(Some(v)) = db.get(format!("{:?}:{}", _msg.guild_id, unknown_command_name).as_bytes())
     {
         if v.len() != 0 {
             if let Err(why) = _msg
@@ -210,7 +188,7 @@ async fn main() {
                 .owners(owners)
         })
         .unrecognised_command(unknown_command)
-        .group(&COMMAND_GROUP);
+        .group(&RESP_GROUP);
 
     let mut client = Client::builder(&conf.discord_token)
         .event_handler(Handler)
