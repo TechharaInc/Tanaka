@@ -10,31 +10,17 @@ use serenity::{
 };
 use std::{
     collections::{HashMap, HashSet},
-    fs,
-    io::BufReader,
-    io::Read,
     sync::Arc,
 };
 
-use serde::Deserialize;
 use serenity::prelude::*;
 use tokio::sync::Mutex;
 
-#[macro_use]
-extern crate diesel;
 use diesel::{
     pg::PgConnection,
-    prelude::*,
     r2d2::{ConnectionManager, Pool},
+    OptionalExtension, RunQueryDsl,
 };
-
-#[derive(Debug, Deserialize)]
-struct Config {
-    db_path: String,
-    discord_token: String,
-    prefix: String,
-    db_url: String,
-}
 
 struct DbConn;
 
@@ -46,6 +32,7 @@ use crate::kvs::Database;
 mod kvs;
 
 mod consts;
+use self::models::NewCommand;
 use crate::consts::consts::{REACTION_FAILED, REACTION_SUCESSED};
 
 use kwbot::*;
@@ -63,22 +50,6 @@ impl TypeMapKey for CommandCounter {
 
 struct Handler;
 
-fn load_config(path: std::string::String) -> Result<Config, String> {
-    let mut file_content = String::new();
-
-    let mut fr = fs::File::open(path)
-        .map(|f| BufReader::new(f))
-        .map_err(|e| e.to_string())?;
-
-    fr.read_to_string(&mut file_content)
-        .map_err(|e| e.to_string())?;
-    let conf: Result<Config, toml::de::Error> = toml::from_str(&file_content);
-    match conf {
-        Ok(p) => serde::__private::Ok(p),
-        Err(e) => panic!("Filed to parse TOML: {}", e),
-    }
-}
-
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, _: Context, ready: Ready) {
@@ -92,13 +63,16 @@ struct Resp;
 
 #[command]
 async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    use schema::commands;
+
     if args.len() < 2 && msg.attachments.is_empty() {
         if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
             println!("Error sending message: {:?}", why);
         }
     } else {
-        let data = ctx.data.read().await;
-        let db = data.get::<DbConn>().unwrap();
+        let db = &establish_connection();
+        // let data = ctx.data.read().await;
+        // let db = data.get::<DbConn>().unwrap();
 
         let key = args.single::<String>().unwrap();
         let value = if msg.attachments.is_empty() {
@@ -107,13 +81,28 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             &msg.attachments[0].url
         };
 
-        let emoji = match db.put(
-            format!("{:?}:{}", msg.guild_id, key).as_bytes(),
-            value.as_bytes(),
-        ) {
-            Ok(()) => REACTION_SUCESSED,
+        let new_command = NewCommand {
+            guild_id: format!("{:?}", msg.guild_id),
+            command: key,
+            response: value.to_string(),
+            created_by: format!("{}", msg.author.id),
+        };
+
+        let emoji = match diesel::insert_into(commands::table)
+            .values(&new_command)
+            .get_result(db)
+        {
+            Ok(_) => REACTION_SUCESSED,
             Err(_) => REACTION_FAILED,
         };
+
+        // let emoji = match db.put(
+        //     format!("{:?}:{}", msg.guild_id, key).as_bytes(),
+        //     value.as_bytes(),
+        // ) {
+        //     Ok(()) => REACTION_SUCESSED,
+        //     Err(_) => REACTION_FAILED,
+        // };
         if let Err(why) = msg
             .react(&ctx.http, ReactionType::Unicode(emoji.to_string()))
             .await
@@ -184,7 +173,6 @@ async fn main() {
         Err(e) => panic!("fail to perse toml: {}", e),
     };
 
-    let db: kvs::RocksDB = kvs::KVStore::init(&conf.db_path);
     let http = Http::new_with_token(&conf.discord_token);
 
     let (owners, bot_id) = match http.get_current_application_info().await {
@@ -219,14 +207,14 @@ async fn main() {
         .await
         .expect("Err creating client");
 
-    {
-        let data = client.data.write();
-        data.await.insert::<DbConn>(
-            Pool::builder()
-                .build(ConnectionManager::<PgConnection>::new(conf.db_url))
-                .unwrap(),
-        );
-    }
+    // {
+    //     let data = client.data.write();
+    //     data.await.insert::<DbConn>(
+    //         Pool::builder()
+    //             .build(ConnectionManager::<PgConnection>::new(conf.db_url))
+    //             .unwrap(),
+    //     );
+    // }
 
     if let Err(why) = client.start().await {
         println!("Client error: {:?}", why);

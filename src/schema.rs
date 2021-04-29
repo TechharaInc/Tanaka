@@ -4,6 +4,7 @@ table! {
         guild_id -> Text,
         command -> Text,
         response -> Text,
+        created_by -> Text,
         created_at -> Timestamp,
     }
 }
