@@ -20,11 +20,26 @@ use serde::Deserialize;
 use serenity::prelude::*;
 use tokio::sync::Mutex;
 
+#[macro_use]
+extern crate diesel;
+use diesel::{
+    pg::PgConnection,
+    prelude::*,
+    r2d2::{ConnectionManager, Pool},
+};
+
 #[derive(Debug, Deserialize)]
 struct Config {
     db_path: String,
     discord_token: String,
     prefix: String,
+    db_url: String,
+}
+
+struct DbConn;
+
+impl TypeMapKey for DbConn {
+    type Value = Pool<ConnectionManager<PgConnection>>;
 }
 
 use crate::kvs::Database;
@@ -33,6 +48,7 @@ mod kvs;
 mod consts;
 use crate::consts::consts::{REACTION_FAILED, REACTION_SUCESSED};
 
+use kwbot::*;
 struct ShardManagerContainer;
 
 impl TypeMapKey for ShardManagerContainer {
@@ -82,7 +98,7 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         }
     } else {
         let data = ctx.data.read().await;
-        let db = data.get::<Database>().unwrap();
+        let db = data.get::<DbConn>().unwrap();
 
         let key = args.single::<String>().unwrap();
         let value = if msg.attachments.is_empty() {
@@ -205,7 +221,11 @@ async fn main() {
 
     {
         let data = client.data.write();
-        data.await.insert::<Database>(db.db.clone());
+        data.await.insert::<DbConn>(
+            Pool::builder()
+                .build(ConnectionManager::<PgConnection>::new(conf.db_url))
+                .unwrap(),
+        );
     }
 
     if let Err(why) = client.start().await {
