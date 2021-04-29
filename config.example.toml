@@ -1,3 +1,4 @@
 discord_token = ""
 db_path = ""
+db_url = ""
 prefix = ""
