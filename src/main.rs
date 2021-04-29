@@ -76,7 +76,7 @@ struct Resp;
 
 #[command]
 async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    if args.is_empty() || args.len() < 2 {
+    if args.len() < 2 && msg.attachments.is_empty() {
         if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
             println!("Error sending message: {:?}", why);
         }
@@ -84,9 +84,16 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let data = ctx.data.read().await;
         let db = data.get::<Database>().unwrap();
 
+        let key = args.single::<String>().unwrap();
+        let value = if msg.attachments.is_empty() {
+            args.rest()
+        } else {
+            &msg.attachments[0].url
+        };
+
         let emoji = match db.put(
-            format!("{:?}:{}", msg.guild_id, args.single::<String>().unwrap()).as_bytes(),
-            args.rest().as_bytes(),
+            format!("{:?}:{}:{}", msg.guild_id, "command", key).as_bytes(),
+            value.as_bytes(),
         ) {
             Ok(()) => REACTION_SUCESSED,
             Err(_) => REACTION_FAILED,
