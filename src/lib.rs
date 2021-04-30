@@ -10,7 +10,6 @@ use std::{fs, io::BufReader, io::Read};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    pub db_path: String,
     pub discord_token: String,
     pub prefix: String,
     pub db_url: String,
