@@ -1,15 +1,13 @@
-use chrono::{DateTime, Utc};
-
 use super::schema::commands;
 
-#[derive(Queryable)]
-pub struct Commands {
+#[derive(Debug, Queryable)]
+pub struct Command {
     pub id: i32,
     pub guild_id: String,
     pub command: String,
     pub response: String,
     pub created_by: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: chrono::NaiveDateTime,
 }
 
 #[derive(Insertable)]
