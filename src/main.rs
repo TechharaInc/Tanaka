@@ -152,6 +152,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
     let data = _ctx.data.read().await;
     let db = data.get::<DbConn>().unwrap().clone();
+    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
     let conn = db.get().unwrap();
 
     if let Ok(v) = crud::get_all_commands(
@@ -161,6 +162,11 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
     ) {
         if v.len() != 0 {
             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
+            kvs::command_incr(
+                &mut kvs_conn.get_connection().unwrap(),
+                _msg.guild_id.unwrap().to_string(),
+                unknown_command_name.to_string(),
+            );
             if let Err(why) = _msg.channel_id.say(&_ctx.http, cmd.response.clone()).await {
                 println!("Error sending message: {:?}", why);
             }

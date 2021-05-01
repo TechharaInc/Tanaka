@@ -2,6 +2,7 @@
 extern crate diesel;
 extern crate redis;
 pub mod crud;
+pub mod kvs;
 pub mod models;
 pub mod schema;
 
