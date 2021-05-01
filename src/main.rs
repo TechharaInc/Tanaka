@@ -127,13 +127,19 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     } else {
         let data = ctx.data.read().await;
         let db = data.get::<DbConn>().unwrap().clone();
+        let kvs_conn = data.get::<RedisConn>().unwrap().clone();
         let conn = db.get().unwrap();
 
-        let emoji = match crud::command_delete(
-            conn,
-            msg.guild_id.unwrap().to_string(),
-            args.single::<String>().unwrap(),
-        ) {
+        let gid: String = msg.guild_id.unwrap().to_string();
+        let key: String = args.single::<String>().unwrap();
+
+        kvs::command_delete(
+            &mut kvs_conn.get_connection().unwrap(),
+            gid.clone(),
+            key.clone(),
+        );
+
+        let emoji = match crud::command_delete(conn, gid.clone(), key.clone()) {
             Ok(_) => REACTION_SUCESSED,
             Err(_) => REACTION_FAILED,
         };
