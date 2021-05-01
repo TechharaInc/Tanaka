@@ -28,6 +28,12 @@ impl TypeMapKey for DbConn {
     type Value = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<PgConnection>>;
 }
 
+struct RedisConn;
+
+impl TypeMapKey for RedisConn {
+    type Value = redis::Client;
+}
+
 mod consts;
 
 use crate::consts::consts::{REACTION_FAILED, REACTION_SUCESSED};
@@ -204,12 +210,13 @@ async fn main() {
         .expect("Err creating client");
 
     {
-        let data = client.data.write();
-        data.await.insert::<DbConn>(
+        let mut data = client.data.write().await;
+        data.insert::<DbConn>(
             Pool::builder()
                 .build(ConnectionManager::<PgConnection>::new(conf.db_url))
                 .unwrap(),
         );
+        data.insert::<RedisConn>(open_redis_conn(conf.redis_url).unwrap());
     }
 
     if let Err(why) = client.start().await {

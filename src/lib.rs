@@ -1,10 +1,12 @@
 #[macro_use]
 extern crate diesel;
+extern crate redis;
 pub mod crud;
 pub mod models;
 pub mod schema;
 
 use diesel::{Connection, PgConnection};
+use redis::{Client, RedisError};
 use serde::Deserialize;
 use std::{fs, io::BufReader, io::Read};
 
@@ -13,6 +15,7 @@ pub struct Config {
     pub discord_token: String,
     pub prefix: String,
     pub db_url: String,
+    pub redis_url: String,
 }
 
 pub fn load_config(path: std::string::String) -> Result<Config, String> {
@@ -37,4 +40,8 @@ pub fn establish_connection() -> PgConnection {
         Err(e) => panic!("fail to perse toml: {}", e),
     };
     PgConnection::establish(&conf.db_url).expect(&format!("Error connecting to {}", conf.db_url))
+}
+
+pub fn open_redis_conn(path: std::string::String) -> Result<Client, RedisError> {
+    redis::Client::open(path)
 }
