@@ -63,7 +63,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(add, remove)]
+#[commands(add, remove, rank)]
 struct Resp;
 
 #[command]
@@ -151,6 +151,27 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             println!("Error reacting message: {:?}", why);
         };
     }
+    Ok(())
+}
+
+#[command]
+async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
+    let data = ctx.data.read().await;
+    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+
+    let gid: String = msg.guild_id.unwrap().to_string();
+
+    let mut rank = vec![];
+    for (i, r) in kvs::command_rank(&mut kvs_conn.get_connection().unwrap(), gid.clone())
+        .iter()
+        .enumerate()
+    {
+        rank.push(format!("{}位 {} ({}回)", i + 1, r.0, r.1));
+    }
+
+    if let Err(why) = msg.channel_id.say(&ctx.http, rank.join("\n")).await {
+        println!("Error sending message: {:?}", why);
+    };
     Ok(())
 }
 
