@@ -28,6 +28,12 @@ impl TypeMapKey for DbConn {
     type Value = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<PgConnection>>;
 }
 
+struct RedisConn;
+
+impl TypeMapKey for RedisConn {
+    type Value = redis::Client;
+}
+
 mod consts;
 
 use crate::consts::consts::{REACTION_FAILED, REACTION_SUCESSED};
@@ -57,7 +63,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(add, remove)]
+#[commands(add, remove, rank)]
 struct Resp;
 
 #[command]
@@ -121,13 +127,19 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     } else {
         let data = ctx.data.read().await;
         let db = data.get::<DbConn>().unwrap().clone();
+        let kvs_conn = data.get::<RedisConn>().unwrap().clone();
         let conn = db.get().unwrap();
 
-        let emoji = match crud::command_delete(
-            conn,
-            msg.guild_id.unwrap().to_string(),
-            args.single::<String>().unwrap(),
-        ) {
+        let gid: String = msg.guild_id.unwrap().to_string();
+        let key: String = args.single::<String>().unwrap();
+
+        kvs::command_delete(
+            &mut kvs_conn.get_connection().unwrap(),
+            gid.clone(),
+            key.clone(),
+        );
+
+        let emoji = match crud::command_delete(conn, gid.clone(), key.clone()) {
             Ok(_) => REACTION_SUCESSED,
             Err(_) => REACTION_FAILED,
         };
@@ -142,10 +154,32 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     Ok(())
 }
 
+#[command]
+async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
+    let data = ctx.data.read().await;
+    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+
+    let gid: String = msg.guild_id.unwrap().to_string();
+
+    let mut rank = vec![];
+    for (i, r) in kvs::command_rank(&mut kvs_conn.get_connection().unwrap(), gid.clone())
+        .iter()
+        .enumerate()
+    {
+        rank.push(format!("{}位 {} ({}回)", i + 1, r.0, r.1));
+    }
+
+    if let Err(why) = msg.channel_id.say(&ctx.http, rank.join("\n")).await {
+        println!("Error sending message: {:?}", why);
+    };
+    Ok(())
+}
+
 #[hook]
 async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
     let data = _ctx.data.read().await;
     let db = data.get::<DbConn>().unwrap().clone();
+    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
     let conn = db.get().unwrap();
 
     if let Ok(v) = crud::get_all_commands(
@@ -155,6 +189,11 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
     ) {
         if v.len() != 0 {
             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
+            kvs::command_incr(
+                &mut kvs_conn.get_connection().unwrap(),
+                _msg.guild_id.unwrap().to_string(),
+                unknown_command_name.to_string(),
+            );
             if let Err(why) = _msg.channel_id.say(&_ctx.http, cmd.response.clone()).await {
                 println!("Error sending message: {:?}", why);
             }
@@ -204,12 +243,13 @@ async fn main() {
         .expect("Err creating client");
 
     {
-        let data = client.data.write();
-        data.await.insert::<DbConn>(
+        let mut data = client.data.write().await;
+        data.insert::<DbConn>(
             Pool::builder()
                 .build(ConnectionManager::<PgConnection>::new(conf.db_url))
                 .unwrap(),
         );
+        data.insert::<RedisConn>(open_redis_conn(conf.redis_url).unwrap());
     }
 
     if let Err(why) = client.start().await {

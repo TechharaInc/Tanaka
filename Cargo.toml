@@ -11,6 +11,7 @@ toml = "0.5.5"
 diesel = { version = "1.4.4", features = ["postgres", "r2d2", "chrono"] }
 chrono = "0.4.19"
 rand = "0.7.2"
+redis = "0.20.0"
 
 [dependencies.serenity]
 git = "https://github.com/serenity-rs/serenity.git"
