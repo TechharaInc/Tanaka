@@ -319,32 +319,6 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
             };
         }
     }
-    // match retrieve_command(
-    //     conn,
-    //     &mut kvs_client,
-    //     gid.clone(),
-    //     unknown_command_name.to_string(),
-    // ) {
-    //     Ok(resp) => {
-    //         if resp.is_empty() {
-    //             match kvs::retrieve_alias(&mut kvs_client, gid, unknown_command_name.to_string()) {
-    //                 Ok(v) => {
-    //                     if let Err(why) = _msg.channel_id.say(&_ctx.http, v).await {
-    //                         println!("Error sending message: {:?}", why);
-    //                     }
-    //                 }
-    //                 Err(why) => {
-    //                     println!("Error sending message: {:?}", why);
-    //                 }
-    //             };
-    //         } else {
-    //             if let Err(why) = _msg.channel_id.say(&_ctx.http, resp).await {
-    //                 println!("Error sending message: {:?}", why);
-    //             }
-    //         }
-    //     }
-    //     Err(why) => println!("Error sending message: {:?}", why),
-    // }
 }
 
 #[tokio::main]
