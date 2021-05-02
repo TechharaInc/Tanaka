@@ -19,7 +19,7 @@ use tokio::sync::Mutex;
 
 use diesel::{
     pg::PgConnection,
-    r2d2::{ConnectionManager, Pool, PooledConnection},
+    r2d2::{ConnectionManager, Pool},
 };
 
 struct DbConn;
@@ -63,8 +63,12 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(add, remove, rank, alias, remove_alias)]
+#[commands(add, remove, rank)]
 struct Resp;
+
+#[group]
+#[commands(add_alias, remove_alias)]
+struct Alias;
 
 #[command]
 async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
@@ -176,7 +180,7 @@ async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
 }
 
 #[command]
-async fn alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+async fn add_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let key = args.single::<String>().unwrap();
     let value = args.rest();
 
@@ -193,8 +197,8 @@ async fn alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         match kvs::add_alias(
             &mut kvs_conn.get_connection().unwrap(),
             gid,
-            key,
             value.to_string(),
+            key,
         ) {
             Ok(_) => {
                 if let Err(why) = msg
@@ -207,7 +211,18 @@ async fn alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                     println!("Error reacting message: {:?}", why);
                 };
             }
-            Err(why) => println!("Error adding alias: {:?}", why),
+            Err(why) => {
+                println!("Error adding alias: {:?}", why);
+                if let Err(why) = msg
+                    .react(
+                        &ctx.http,
+                        ReactionType::Unicode(REACTION_FAILED.to_string()),
+                    )
+                    .await
+                {
+                    println!("Error reacting message: {:?}", why);
+                };
+            }
         }
     }
     Ok(())
@@ -239,68 +254,93 @@ async fn remove_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandRe
     Ok(())
 }
 
-fn retrieve_command(
-    conn: PooledConnection<ConnectionManager<PgConnection>>,
-    kvs_conn: redis::Client,
-    gid: String,
-    command_name: String,
-) -> Result<String, ()> {
-    if let Ok(v) = crud::get_all_commands(conn, gid.clone(), command_name.to_string()) {
-        if v.len() != 0 {
-            kvs::command_incr(
-                &mut kvs_conn.get_connection().unwrap(),
-                gid,
-                command_name.to_string(),
-            );
-            let cmd = v.choose(&mut rand::thread_rng()).unwrap();
-            Ok(cmd.response.clone())
-        } else {
-            Ok("".to_string())
-        }
-    } else {
-        Err(())
-    }
-}
-
 #[hook]
 async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
     let data = _ctx.data.read().await;
     let db = data.get::<DbConn>().unwrap().clone();
     let kvs_conn = data.get::<RedisConn>().unwrap().clone();
-    let conn = db.get().unwrap();
+    let mut kvs_client = kvs_conn.get_connection().unwrap();
 
-    let gid: String = _msg.guild_id.unwrap().to_string();
-
-    match retrieve_command(
-        conn,
-        kvs_conn.clone(),
-        gid.clone(),
+    if let Ok(v) = crud::get_all_commands(
+        db.get().unwrap(),
+        _msg.guild_id.unwrap().to_string(),
         unknown_command_name.to_string(),
     ) {
-        Ok(resp) => {
-            if resp.is_empty() {
-                match kvs::retrieve_alias(
-                    &mut kvs_conn.get_connection().unwrap(),
-                    gid,
-                    unknown_command_name.to_string(),
-                ) {
-                    Ok(v) => {
-                        if let Err(why) = _msg.channel_id.say(&_ctx.http, v).await {
-                            println!("Error sending message: {:?}", why);
+        if v.len() != 0 {
+            let cmd = v.choose(&mut rand::thread_rng()).unwrap();
+            kvs::command_incr(
+                &mut kvs_client,
+                _msg.guild_id.unwrap().to_string(),
+                unknown_command_name.to_string(),
+            );
+            if let Err(why) = _msg
+                .channel_id
+                .say(&_ctx.http, cmd.response.to_string())
+                .await
+            {
+                println!("Error sending message: {:?}", why);
+            };
+        } else {
+            match kvs::retrieve_alias(
+                &mut kvs_client,
+                _msg.guild_id.unwrap().to_string(),
+                unknown_command_name.to_string(),
+            ) {
+                Ok(key) => {
+                    if let Ok(v) = crud::get_all_commands(
+                        db.get().unwrap(),
+                        _msg.guild_id.unwrap().to_string(),
+                        key.clone(),
+                    ) {
+                        if v.len() != 0 {
+                            let cmd = v.choose(&mut rand::thread_rng()).unwrap();
+                            kvs::command_incr(
+                                &mut kvs_client,
+                                _msg.guild_id.unwrap().to_string(),
+                                key,
+                            );
+                            if let Err(why) = _msg
+                                .channel_id
+                                .say(&_ctx.http, cmd.response.to_string())
+                                .await
+                            {
+                                println!("Error sending message: {:?}", why);
+                            };
                         }
                     }
-                    Err(why) => {
-                        println!("Error sending message: {:?}", why);
-                    }
-                };
-            } else {
-                if let Err(why) = _msg.channel_id.say(&_ctx.http, resp).await {
+                }
+                Err(why) => {
                     println!("Error sending message: {:?}", why);
                 }
-            }
+            };
         }
-        Err(why) => println!("Error sending message: {:?}", why),
     }
+    // match retrieve_command(
+    //     conn,
+    //     &mut kvs_client,
+    //     gid.clone(),
+    //     unknown_command_name.to_string(),
+    // ) {
+    //     Ok(resp) => {
+    //         if resp.is_empty() {
+    //             match kvs::retrieve_alias(&mut kvs_client, gid, unknown_command_name.to_string()) {
+    //                 Ok(v) => {
+    //                     if let Err(why) = _msg.channel_id.say(&_ctx.http, v).await {
+    //                         println!("Error sending message: {:?}", why);
+    //                     }
+    //                 }
+    //                 Err(why) => {
+    //                     println!("Error sending message: {:?}", why);
+    //                 }
+    //             };
+    //         } else {
+    //             if let Err(why) = _msg.channel_id.say(&_ctx.http, resp).await {
+    //                 println!("Error sending message: {:?}", why);
+    //             }
+    //         }
+    //     }
+    //     Err(why) => println!("Error sending message: {:?}", why),
+    // }
 }
 
 #[tokio::main]
@@ -336,7 +376,8 @@ async fn main() {
                 .owners(owners)
         })
         .unrecognised_command(unknown_command)
-        .group(&RESP_GROUP);
+        .group(&RESP_GROUP)
+        .group(&ALIAS_GROUP);
 
     let mut client = Client::builder(&conf.discord_token)
         .event_handler(Handler)
