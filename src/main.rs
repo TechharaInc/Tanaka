@@ -63,8 +63,14 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(add, remove, rank)]
+#[commands(add, remove, rank, alias)]
 struct Resp;
+
+#[command("alias")]
+#[sub_commands(add_alias, remove_alias)]
+async fn alias(_: &Context, _: &Message, _args: Args) -> CommandResult {
+    Ok(())
+}
 
 #[command]
 async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
@@ -175,28 +181,142 @@ async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
+#[command]
+#[aliases("add")]
+async fn add_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    let key = args.single::<String>().unwrap();
+    let value = args.rest();
+
+    let data = ctx.data.read().await;
+    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+
+    let gid: String = msg.guild_id.unwrap().to_string();
+
+    if args.len() < 2 {
+        if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
+            println!("Error sending message: {:?}", why);
+        }
+    } else {
+        match kvs::add_alias(
+            &mut kvs_conn.get_connection().unwrap(),
+            gid,
+            value.to_string(),
+            key,
+        ) {
+            Ok(_) => {
+                if let Err(why) = msg
+                    .react(
+                        &ctx.http,
+                        ReactionType::Unicode(REACTION_SUCESSED.to_string()),
+                    )
+                    .await
+                {
+                    println!("Error reacting message: {:?}", why);
+                };
+            }
+            Err(why) => {
+                println!("Error adding alias: {:?}", why);
+                if let Err(why) = msg
+                    .react(
+                        &ctx.http,
+                        ReactionType::Unicode(REACTION_FAILED.to_string()),
+                    )
+                    .await
+                {
+                    println!("Error reacting message: {:?}", why);
+                };
+            }
+        }
+    }
+    Ok(())
+}
+
+#[command]
+#[aliases("remove")]
+async fn remove_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    let key = args.single::<String>().unwrap();
+
+    let data = ctx.data.read().await;
+    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+
+    let gid: String = msg.guild_id.unwrap().to_string();
+
+    match kvs::remove_alias(&mut kvs_conn.get_connection().unwrap(), gid, key) {
+        Ok(_) => {
+            if let Err(why) = msg
+                .react(
+                    &ctx.http,
+                    ReactionType::Unicode(REACTION_SUCESSED.to_string()),
+                )
+                .await
+            {
+                println!("Error reacting message: {:?}", why);
+            };
+        }
+        Err(why) => println!("Error adding alias: {:?}", why),
+    }
+    Ok(())
+}
+
 #[hook]
 async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
     let data = _ctx.data.read().await;
     let db = data.get::<DbConn>().unwrap().clone();
     let kvs_conn = data.get::<RedisConn>().unwrap().clone();
-    let conn = db.get().unwrap();
+    let mut kvs_client = kvs_conn.get_connection().unwrap();
 
     if let Ok(v) = crud::get_all_commands(
-        conn,
+        db.get().unwrap(),
         _msg.guild_id.unwrap().to_string(),
         unknown_command_name.to_string(),
     ) {
         if v.len() != 0 {
             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
             kvs::command_incr(
-                &mut kvs_conn.get_connection().unwrap(),
+                &mut kvs_client,
                 _msg.guild_id.unwrap().to_string(),
                 unknown_command_name.to_string(),
             );
-            if let Err(why) = _msg.channel_id.say(&_ctx.http, cmd.response.clone()).await {
+            if let Err(why) = _msg
+                .channel_id
+                .say(&_ctx.http, cmd.response.to_string())
+                .await
+            {
                 println!("Error sending message: {:?}", why);
-            }
+            };
+        } else {
+            match kvs::retrieve_alias(
+                &mut kvs_client,
+                _msg.guild_id.unwrap().to_string(),
+                unknown_command_name.to_string(),
+            ) {
+                Ok(key) => {
+                    if let Ok(v) = crud::get_all_commands(
+                        db.get().unwrap(),
+                        _msg.guild_id.unwrap().to_string(),
+                        key.clone(),
+                    ) {
+                        if v.len() != 0 {
+                            let cmd = v.choose(&mut rand::thread_rng()).unwrap();
+                            kvs::command_incr(
+                                &mut kvs_client,
+                                _msg.guild_id.unwrap().to_string(),
+                                key,
+                            );
+                            if let Err(why) = _msg
+                                .channel_id
+                                .say(&_ctx.http, cmd.response.to_string())
+                                .await
+                            {
+                                println!("Error sending message: {:?}", why);
+                            };
+                        }
+                    }
+                }
+                Err(why) => {
+                    println!("Error sending message: {:?}", why);
+                }
+            };
         }
     }
 }
