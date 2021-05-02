@@ -2,3 +2,5 @@
 .DS_Store
 config.toml
 data/
+docker-compose.yml
+Dockerfile
