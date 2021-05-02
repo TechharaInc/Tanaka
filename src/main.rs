@@ -63,12 +63,14 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(add, remove, rank)]
+#[commands(add, remove, rank, alias)]
 struct Resp;
 
-#[group]
-#[commands(add_alias, remove_alias)]
-struct Alias;
+#[command("alias")]
+#[sub_commands(add_alias, remove_alias)]
+async fn alias(_: &Context, _: &Message, _args: Args) -> CommandResult {
+    Ok(())
+}
 
 #[command]
 async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
@@ -180,6 +182,7 @@ async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
 }
 
 #[command]
+#[aliases("add")]
 async fn add_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let key = args.single::<String>().unwrap();
     let value = args.rest();
@@ -229,6 +232,7 @@ async fn add_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
 }
 
 #[command]
+#[aliases("remove")]
 async fn remove_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let key = args.single::<String>().unwrap();
 
@@ -376,8 +380,7 @@ async fn main() {
                 .owners(owners)
         })
         .unrecognised_command(unknown_command)
-        .group(&RESP_GROUP)
-        .group(&ALIAS_GROUP);
+        .group(&RESP_GROUP);
 
     let mut client = Client::builder(&conf.discord_token)
         .event_handler(Handler)
