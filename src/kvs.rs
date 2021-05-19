@@ -16,7 +16,7 @@ pub fn command_delete(conn: &mut redis::Connection, gid: String, command_key: St
 }
 
 pub fn command_rank(conn: &mut redis::Connection, gid: String) -> Vec<(String, u32)> {
-    conn.zrevrange_withscores(format!("{}:{}", gid, "rank"), 0, 10)
+    conn.zrevrange_withscores(format!("{}:{}", gid, "rank"), 0, 9)
         .unwrap()
 }
 
