@@ -175,7 +175,11 @@ async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
         rank.push(format!("{}位 {} ({}回)", i + 1, r.0, r.1));
     }
 
-    if let Err(why) = msg.channel_id.say(&ctx.http, rank.join("\n")).await {
+    if let Err(why) = msg
+        .channel_id
+        .say(&ctx.http, format!("```\n{}\n```", rank.join("\n")))
+        .await
+    {
         println!("Error sending message: {:?}", why);
     };
     Ok(())
