@@ -36,7 +36,7 @@ impl TypeMapKey for RedisConn {
 
 mod consts;
 
-use crate::consts::consts::{REACTION_FAILED, REACTION_SUCESSED};
+use crate::consts::{REACTION_FAILED, REACTION_SUCESSED};
 
 mod crud;
 
@@ -126,7 +126,7 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
 #[command]
 async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    if args.is_empty() || args.len() < 1 {
+    if args.is_empty() {
         if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
             println!("Error sending message: {:?}", why);
         }
@@ -137,7 +137,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let conn = db.get().unwrap();
 
         let gid: String = msg.guild_id.unwrap().to_string();
-        let key: String = args.single::<String>().unwrap();
+        let key: String = args.single::<String>().unwrap().to_lowercase();
 
         kvs::command_delete(
             &mut kvs_conn.get_connection().unwrap(),
@@ -188,7 +188,7 @@ async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 #[aliases("add")]
 async fn add_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    let key = args.single::<String>().unwrap();
+    let key: String = args.single::<String>().unwrap().to_lowercase();
     let value = args.rest();
 
     let data = ctx.data.read().await;
@@ -238,7 +238,7 @@ async fn add_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
 #[command]
 #[aliases("remove")]
 async fn remove_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    let key = args.single::<String>().unwrap();
+    let key: String = args.single::<String>().unwrap().to_lowercase();
 
     let data = ctx.data.read().await;
     let kvs_conn = data.get::<RedisConn>().unwrap().clone();
@@ -274,7 +274,7 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
         _msg.guild_id.unwrap().to_string(),
         unknown_command_name.to_string(),
     ) {
-        if v.len() != 0 {
+        if !v.is_empty() {
             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
             kvs::command_incr(
                 &mut kvs_client,
@@ -300,7 +300,7 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
                         _msg.guild_id.unwrap().to_string(),
                         key.clone(),
                     ) {
-                        if v.len() != 0 {
+                        if !v.is_empty() {
                             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
                             kvs::command_incr(
                                 &mut kvs_client,
