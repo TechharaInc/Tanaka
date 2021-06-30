@@ -272,7 +272,7 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
     if let Ok(v) = crud::get_all_commands(
         db.get().unwrap(),
         _msg.guild_id.unwrap().to_string(),
-        unknown_command_name.to_string(),
+        unknown_command_name.to_string().to_lowercase(),
     ) {
         if !v.is_empty() {
             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
