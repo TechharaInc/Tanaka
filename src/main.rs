@@ -93,7 +93,7 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let db = data.get::<DbConn>().unwrap().clone();
         let conn = db.get().unwrap();
 
-        let key = args.single::<String>().unwrap();
+        let key: String = args.single::<String>().unwrap().to_lowercase();
         let value = if msg.attachments.is_empty() {
             args.rest()
         } else {
