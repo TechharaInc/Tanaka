@@ -90,7 +90,7 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         }
     } else {
         let data = ctx.data.read().await;
-        let db = data.get::<DbConn>().unwrap().clone();
+        let db = data.get::<DbConn>().unwrap();
         let conn = db.get().unwrap();
 
         let key: String = args.single::<String>().unwrap().to_lowercase();
@@ -102,7 +102,7 @@ async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
         let emoji = match crud::add_command(
             conn,
-            msg.guild_id.unwrap().to_string(),
+            &msg.guild_id.unwrap(),
             key,
             value.to_string(),
             format!("{}", msg.author.id),
@@ -132,20 +132,16 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         }
     } else {
         let data = ctx.data.read().await;
-        let db = data.get::<DbConn>().unwrap().clone();
-        let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+        let db = data.get::<DbConn>().unwrap();
+        let kvs_conn = data.get::<RedisConn>().unwrap();
         let conn = db.get().unwrap();
 
-        let gid: String = msg.guild_id.unwrap().to_string();
+        let gid = msg.guild_id.unwrap();
         let key: String = args.single::<String>().unwrap().to_lowercase();
 
-        kvs::command_delete(
-            &mut kvs_conn.get_connection().unwrap(),
-            gid.clone(),
-            key.clone(),
-        );
+        kvs::command_delete(&mut kvs_conn.get_connection().unwrap(), &gid, &key);
 
-        let emoji = match crud::command_delete(conn, gid.clone(), key.clone()) {
+        let emoji = match crud::command_delete(conn, &gid, &key) {
             Ok(_) => REACTION_SUCESSED,
             Err(_) => REACTION_FAILED,
         };
@@ -163,12 +159,12 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 #[command]
 async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
     let data = ctx.data.read().await;
-    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+    let kvs_conn = data.get::<RedisConn>().unwrap();
 
-    let gid: String = msg.guild_id.unwrap().to_string();
+    let gid = msg.guild_id.unwrap();
 
     let mut rank = vec![];
-    for (i, r) in kvs::command_rank(&mut kvs_conn.get_connection().unwrap(), gid.clone())
+    for (i, r) in kvs::command_rank(&mut kvs_conn.get_connection().unwrap(), &gid)
         .iter()
         .enumerate()
     {
@@ -192,21 +188,16 @@ async fn add_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
     let value = args.rest();
 
     let data = ctx.data.read().await;
-    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+    let kvs_conn = data.get::<RedisConn>().unwrap();
 
-    let gid: String = msg.guild_id.unwrap().to_string();
+    let gid = msg.guild_id.unwrap();
 
     if args.len() < 2 {
         if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
             println!("Error sending message: {:?}", why);
         }
     } else {
-        match kvs::add_alias(
-            &mut kvs_conn.get_connection().unwrap(),
-            gid,
-            value.to_string(),
-            key,
-        ) {
+        match kvs::add_alias(&mut kvs_conn.get_connection().unwrap(), &gid, &value, &key) {
             Ok(_) => {
                 if let Err(why) = msg
                     .react(
@@ -241,11 +232,11 @@ async fn remove_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandRe
     let key: String = args.single::<String>().unwrap().to_lowercase();
 
     let data = ctx.data.read().await;
-    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+    let kvs_conn = data.get::<RedisConn>().unwrap();
 
-    let gid: String = msg.guild_id.unwrap().to_string();
+    let gid = msg.guild_id.unwrap();
 
-    match kvs::remove_alias(&mut kvs_conn.get_connection().unwrap(), gid, key) {
+    match kvs::remove_alias(&mut kvs_conn.get_connection().unwrap(), &gid, &key) {
         Ok(_) => {
             if let Err(why) = msg
                 .react(
@@ -265,21 +256,21 @@ async fn remove_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandRe
 #[hook]
 async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
     let data = _ctx.data.read().await;
-    let db = data.get::<DbConn>().unwrap().clone();
-    let kvs_conn = data.get::<RedisConn>().unwrap().clone();
+    let db = data.get::<DbConn>().unwrap();
+    let kvs_conn = data.get::<RedisConn>().unwrap();
     let mut kvs_client = kvs_conn.get_connection().unwrap();
 
     if let Ok(v) = crud::get_all_commands(
         db.get().unwrap(),
-        _msg.guild_id.unwrap().to_string(),
-        unknown_command_name.to_string().to_lowercase(),
+        &_msg.guild_id.unwrap(),
+        &unknown_command_name.to_string().to_lowercase(),
     ) {
         if !v.is_empty() {
             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
             kvs::command_incr(
                 &mut kvs_client,
-                _msg.guild_id.unwrap().to_string(),
-                unknown_command_name.to_string(),
+                &_msg.guild_id.unwrap(),
+                &unknown_command_name,
             );
             if let Err(why) = _msg
                 .channel_id
@@ -291,22 +282,16 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
         } else {
             match kvs::retrieve_alias(
                 &mut kvs_client,
-                _msg.guild_id.unwrap().to_string(),
-                unknown_command_name.to_string(),
+                &_msg.guild_id.unwrap(),
+                &unknown_command_name,
             ) {
                 Ok(key) => {
-                    if let Ok(v) = crud::get_all_commands(
-                        db.get().unwrap(),
-                        _msg.guild_id.unwrap().to_string(),
-                        key.clone(),
-                    ) {
+                    if let Ok(v) =
+                        crud::get_all_commands(db.get().unwrap(), &_msg.guild_id.unwrap(), &key)
+                    {
                         if !v.is_empty() {
                             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
-                            kvs::command_incr(
-                                &mut kvs_client,
-                                _msg.guild_id.unwrap().to_string(),
-                                key,
-                            );
+                            kvs::command_incr(&mut kvs_client, &_msg.guild_id.unwrap(), &key);
                             if let Err(why) = _msg
                                 .channel_id
                                 .say(&_ctx.http, cmd.response.to_string())
