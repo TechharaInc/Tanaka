@@ -1,3 +1,4 @@
 discord_token = ""
 db_url = ""
+redis_url = ""
 prefix = ""
