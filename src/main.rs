@@ -75,84 +75,78 @@ async fn alias(_: &Context, _: &Message, _args: Args) -> CommandResult {
 #[command]
 async fn add(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     if msg.guild_id == None {
-        if let Err(why) = msg
-            .channel_id
+        msg.channel_id
             .say(&ctx.http, "このコマンドは DM で実行できません")
             .await
-        {
-            println!("Error sending message: {:?}", why);
+            .expect("Error sending message");
+    }
+
+    if args.len() < 2 && msg.attachments.is_empty() {
+        msg.channel_id
+            .say(&ctx.http, "引数が足りません")
+            .await
+            .expect("Error sending message");
+        return Ok(());
+    }
+    let data = ctx.data.read().await;
+    let db = data.get::<DbConn>().unwrap();
+    let conn = db.get().unwrap();
+
+    let key: String = args.single::<String>().unwrap().to_lowercase();
+    let value = if msg.attachments.is_empty() {
+        args.rest()
+    } else {
+        &msg.attachments[0].url
+    };
+
+    let emoji = match crud::add_command(
+        conn,
+        &msg.guild_id.unwrap(),
+        key,
+        value.to_string(),
+        format!("{}", msg.author.id),
+    ) {
+        Ok(_) => REACTION_SUCESSED,
+        Err(why) => {
+            println!("{}", why);
+            REACTION_FAILED
         }
     };
 
-    if args.len() < 2 && msg.attachments.is_empty() {
-        if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
-            println!("Error sending message: {:?}", why);
-        }
-    } else {
-        let data = ctx.data.read().await;
-        let db = data.get::<DbConn>().unwrap();
-        let conn = db.get().unwrap();
+    msg.react(&ctx.http, ReactionType::Unicode(emoji.to_string()))
+        .await
+        .expect("Error reacting message");
 
-        let key: String = args.single::<String>().unwrap().to_lowercase();
-        let value = if msg.attachments.is_empty() {
-            args.rest()
-        } else {
-            &msg.attachments[0].url
-        };
-
-        let emoji = match crud::add_command(
-            conn,
-            &msg.guild_id.unwrap(),
-            key,
-            value.to_string(),
-            format!("{}", msg.author.id),
-        ) {
-            Ok(_) => REACTION_SUCESSED,
-            Err(why) => {
-                println!("{}", why);
-                REACTION_FAILED
-            }
-        };
-
-        if let Err(why) = msg
-            .react(&ctx.http, ReactionType::Unicode(emoji.to_string()))
-            .await
-        {
-            println!("Error reacting message: {:?}", why);
-        };
-    }
     Ok(())
 }
 
 #[command]
 async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     if args.is_empty() {
-        if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
-            println!("Error sending message: {:?}", why);
-        }
-    } else {
-        let data = ctx.data.read().await;
-        let db = data.get::<DbConn>().unwrap();
-        let kvs_conn = data.get::<RedisConn>().unwrap();
-        let conn = db.get().unwrap();
-
-        let gid = msg.guild_id.unwrap();
-        let key: String = args.single::<String>().unwrap().to_lowercase();
-
-        kvs::command_delete(&mut kvs_conn.get_connection().unwrap(), &gid, &key);
-
-        let emoji = match crud::command_delete(conn, &gid, &key) {
-            Ok(_) => REACTION_SUCESSED,
-            Err(_) => REACTION_FAILED,
-        };
-
-        if let Err(why) = msg
-            .react(&ctx.http, ReactionType::Unicode(emoji.to_string()))
+        msg.channel_id
+            .say(&ctx.http, "引数が足りません")
             .await
-        {
-            println!("Error reacting message: {:?}", why);
-        };
+            .expect("Error sending message");
+        return Ok(());
     }
+    let data = ctx.data.read().await;
+    let db = data.get::<DbConn>().unwrap();
+    let kvs_conn = data.get::<RedisConn>().unwrap();
+    let conn = db.get().unwrap();
+
+    let gid = msg.guild_id.unwrap();
+    let key: String = args.single::<String>().unwrap().to_lowercase();
+
+    kvs::command_delete(&mut kvs_conn.get_connection().unwrap(), &gid, &key);
+
+    let emoji = match crud::command_delete(conn, &gid, &key) {
+        Ok(_) => REACTION_SUCESSED,
+        Err(_) => REACTION_FAILED,
+    };
+
+    msg.react(&ctx.http, ReactionType::Unicode(emoji.to_string()))
+        .await
+        .expect("Error reacting message");
     Ok(())
 }
 
@@ -171,13 +165,10 @@ async fn rank(ctx: &Context, msg: &Message) -> CommandResult {
         rank.push(format!("{}位 {} ({}回)", i + 1, r.0, r.1));
     }
 
-    if let Err(why) = msg
-        .channel_id
+    msg.channel_id
         .say(&ctx.http, format!("```\n{}\n```", rank.join("\n")))
         .await
-    {
-        println!("Error sending message: {:?}", why);
-    };
+        .expect("Error sending message");
     Ok(())
 }
 
@@ -193,36 +184,32 @@ async fn add_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
     let gid = msg.guild_id.unwrap();
 
     if args.len() < 2 {
-        if let Err(why) = msg.channel_id.say(&ctx.http, "引数が足りません").await {
-            println!("Error sending message: {:?}", why);
-        }
-    } else {
-        match kvs::add_alias(&mut kvs_conn.get_connection().unwrap(), &gid, &value, &key) {
-            Ok(_) => {
-                if let Err(why) = msg
-                    .react(
-                        &ctx.http,
-                        ReactionType::Unicode(REACTION_SUCESSED.to_string()),
-                    )
-                    .await
-                {
-                    println!("Error reacting message: {:?}", why);
-                };
-            }
-            Err(why) => {
-                println!("Error adding alias: {:?}", why);
-                if let Err(why) = msg
-                    .react(
-                        &ctx.http,
-                        ReactionType::Unicode(REACTION_FAILED.to_string()),
-                    )
-                    .await
-                {
-                    println!("Error reacting message: {:?}", why);
-                };
-            }
-        }
+        msg.channel_id
+            .say(&ctx.http, "引数が足りません")
+            .await
+            .expect("Error sending message");
+        return Ok(());
     }
+    match kvs::add_alias(&mut kvs_conn.get_connection().unwrap(), &gid, &value, &key) {
+        Ok(_) => {
+            msg.react(
+                &ctx.http,
+                ReactionType::Unicode(REACTION_SUCESSED.to_string()),
+            )
+            .await
+            .expect("Error reacting message");
+        }
+        Err(why) => {
+            println!("Error adding alias: {:?}", why);
+            msg.react(
+                &ctx.http,
+                ReactionType::Unicode(REACTION_FAILED.to_string()),
+            )
+            .await
+            .expect("Error reacting message");
+        }
+    };
+
     Ok(())
 }
 
@@ -238,15 +225,12 @@ async fn remove_alias(ctx: &Context, msg: &Message, mut args: Args) -> CommandRe
 
     match kvs::remove_alias(&mut kvs_conn.get_connection().unwrap(), &gid, &key) {
         Ok(_) => {
-            if let Err(why) = msg
-                .react(
-                    &ctx.http,
-                    ReactionType::Unicode(REACTION_SUCESSED.to_string()),
-                )
-                .await
-            {
-                println!("Error reacting message: {:?}", why);
-            };
+            msg.react(
+                &ctx.http,
+                ReactionType::Unicode(REACTION_SUCESSED.to_string()),
+            )
+            .await
+            .expect("Error reacting message");
         }
         Err(why) => println!("Error adding alias: {:?}", why),
     }
@@ -272,13 +256,10 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
                 &_msg.guild_id.unwrap(),
                 &unknown_command_name,
             );
-            if let Err(why) = _msg
-                .channel_id
+            _msg.channel_id
                 .say(&_ctx.http, cmd.response.to_string())
                 .await
-            {
-                println!("Error sending message: {:?}", why);
-            };
+                .expect("Error sending message");
         } else {
             match kvs::retrieve_alias(
                 &mut kvs_client,
@@ -292,13 +273,10 @@ async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &
                         if !v.is_empty() {
                             let cmd = v.choose(&mut rand::thread_rng()).unwrap();
                             kvs::command_incr(&mut kvs_client, &_msg.guild_id.unwrap(), &key);
-                            if let Err(why) = _msg
-                                .channel_id
+                            _msg.channel_id
                                 .say(&_ctx.http, cmd.response.to_string())
                                 .await
-                            {
-                                println!("Error sending message: {:?}", why);
-                            };
+                                .expect("Error sending message");
                         }
                     }
                 }
@@ -361,7 +339,5 @@ async fn main() {
         data.insert::<RedisConn>(open_redis_conn(conf.redis_url).unwrap());
     }
 
-    if let Err(why) = client.start().await {
-        println!("Client error: {:?}", why);
-    }
+    client.start().await.expect("Client error")
 }
